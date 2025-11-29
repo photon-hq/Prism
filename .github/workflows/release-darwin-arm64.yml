@@ -1,0 +1,38 @@
+name: Build darwin/arm64 binary
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-darwin-arm64:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build darwin/arm64 binary and package Prism bundle
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -o Prism/prism -ldflags "-s -w" ./cmd/prism
+          cd Prism
+          tar -czf ../prism-darwin-arm64.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prism-darwin-arm64
+          path: prism-darwin-arm64.tar.gz
+
+      - name: Publish GitHub Release asset
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: prism-darwin-arm64.tar.gz
+          generate_release_notes: true

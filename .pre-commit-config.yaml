@@ -1,0 +1,58 @@
+# Update: 2025-10-05
+# Install Hooks: pre-commit install
+# Manual test: pre-commit run --all-files
+# Update Hooks: pre-commit autoupdate
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace  # Remove trailing whitespace
+      - id: end-of-file-fixer    # Fix end of files
+      - id: check-yaml           # Check YAML
+      - id: check-json           # Check JSON
+      - id: check-toml           # Check TOML
+      - id: check-added-large-files  # Prevent large files
+        args: ['--maxkb=1000']   # Limit file size to 1MB
+      - id: check-merge-conflict # Check merge conflict markers
+      - id: detect-private-key   # Detect private key leaks
+      - id: mixed-line-ending    # Unify line endings (LF)
+
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt               # Auto format
+      - id: go-imports           # Manage imports
+      - id: go-mod-tidy          # Run go mod tidy
+      - id: golangci-lint
+        args: ['--fix', '--timeout=5m']  # Auto fix fixable issues
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.14.0
+    hooks:
+      - id: hadolint             # Lint Dockerfile if exists
+
+  - repo: https://github.com/zricethezav/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks             # Scan secrets
+
+  # Gosec is disabled for this project because:
+  # - Variable paths for user config files trigger G304 (expected behavior).
+  # - System commands (sysadminctl, launchctl, tar, rsync) trigger G204 (required).
+  # - LaunchAgent plists need 0644 and scripts need 0755 for macOS (G301/G306).
+  # Other security checks (gitleaks, detect-private-key) are still active.
+  #
+  # - repo: local
+  #   hooks:
+  #     - id: gosec
+  #       name: Run gosec security scan
+  #       entry: gosec
+  #       args:
+  #         - '-quiet'
+  #         - '-severity=high'
+  #         - '-confidence=high'
+  #         - './...'
+  #       language: system
+  #       types: [go]
+  #       pass_filenames: false

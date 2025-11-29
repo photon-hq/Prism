@@ -1,0 +1,18 @@
+{
+  "globals": {
+    "machine_id": "photon2",
+    "default_password": "Photon2025",
+    "frpc": {
+      "server_addr": "20.3.12.69",
+      "server_port": 7000
+    },
+    "domain_suffix": "imsgd.photon.codes",
+    "service": {
+      "archive_url": "gh://photon-hq/advanced-imessage-kit-server/bundle-macos-arm64.tar.gz",
+      "start_port": 10001
+    },
+    "nexus": {
+      "base_url": "https://nexus.imsgd.photon.codes"
+    }
+  }
+}
