@@ -40,6 +40,7 @@ const (
 	provisionKindInitial
 	provisionKindAdd
 	provisionKindView
+	provisionKindUpdate
 	provisionKindRemove
 )
 
@@ -188,7 +189,7 @@ func (m Model) updateForKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.cursor < 5 {
+		if m.cursor < 6 {
 			m.cursor++
 		}
 		return m, nil
@@ -214,12 +215,19 @@ func (m Model) updateForKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.provisionErr = nil
 			return m, runViewUsersCmd()
 		case 3:
+			m.status = "Updating Prism user code for all users. Please wait..."
+			m.provisionKind = provisionKindUpdate
+			m.provisionRunning = true
+			m.provisionErr = nil
+			m.provisionResult = nil
+			return m, runUpdateUsersCodeCmd()
+		case 4:
 			m.status = "Checking service status for all Prism users..."
 			m.servicesRunning = true
 			m.servicesErr = nil
 			m.services = nil
 			return m, runServicesCmd()
-		case 4:
+		case 5:
 			m.status = "Loading current Prism user list to select a user to remove..."
 			m.provisionKind = provisionKindRemove
 			m.provisionErr = nil
@@ -287,6 +295,8 @@ func (m Model) updateForProvisionDoneMsg(msg provisionDoneMsg) (tea.Model, tea.C
 					m.awaitRemoveSelection = false
 					m.status = fmt.Sprintf("Deleted Prism user %s. There are now %d users.", m.lastRemovedUser, n)
 				}
+			case provisionKindUpdate:
+				m.status = fmt.Sprintf("Updated Prism user code for %d users.", n)
 			default:
 				m.status = fmt.Sprintf("🎉 Setup completed! Created %d users. Next: switch to each user and run './prism user'", n)
 			}

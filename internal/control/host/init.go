@@ -248,3 +248,31 @@ func (i *Initializer) AddUsers(ctx context.Context, userCount int, prismPath str
 
 	return ProvisionResult{State: newState, SecretsPath: secretsPath}, nil
 }
+
+func (i *Initializer) UpdateUserCode(ctx context.Context) (ProvisionResult, error) {
+	if err := i.validate(); err != nil {
+		return ProvisionResult{}, err
+	}
+
+	cfg, err := i.loadConfig(i.ConfigPath)
+	if err != nil {
+		return ProvisionResult{}, fmt.Errorf("load config: %w", err)
+	}
+
+	st, err := i.loadState(i.StatePath)
+	if err != nil {
+		return ProvisionResult{}, fmt.Errorf("load state: %w", err)
+	}
+
+	outputDir := filepath.Dir(i.StatePath)
+	newState, err := infrahost.UpdateUserCode(ctx, cfg, st, outputDir)
+	if err != nil {
+		return ProvisionResult{}, fmt.Errorf("update user code: %w", err)
+	}
+
+	if err := i.saveState(i.StatePath, newState); err != nil {
+		return ProvisionResult{}, fmt.Errorf("save state: %w", err)
+	}
+
+	return ProvisionResult{State: newState}, nil
+}

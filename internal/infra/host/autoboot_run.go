@@ -92,3 +92,42 @@ func bootstrapPlist(domain, plistPath string) error {
 
 	return nil
 }
+
+func restartUserLaunchAgents(username string) error {
+	sysUser, err := user.Lookup(username)
+	if err != nil {
+		return fmt.Errorf("lookup user %s: %w", username, err)
+	}
+	uid := sysUser.Uid
+	domain := fmt.Sprintf("gui/%s", uid)
+	homeDir := filepath.Join("/Users", username)
+	agentsDir := filepath.Join(homeDir, "Library", "LaunchAgents")
+
+	frpcPlist := filepath.Join(agentsDir, fmt.Sprintf(userFrpcPlistPattern, username))
+	if _, err := os.Stat(frpcPlist); err == nil {
+		if err := kickstartPlist(domain, frpcPlist); err != nil {
+			return fmt.Errorf("kickstart com.imsg.frpc.%s: %w", username, err)
+		}
+	}
+
+	serverPlist := filepath.Join(agentsDir, fmt.Sprintf(userServerPlistPattern, username))
+	if _, err := os.Stat(serverPlist); err == nil {
+		if err := kickstartPlist(domain, serverPlist); err != nil {
+			return fmt.Errorf("kickstart com.imsg.server.%s: %w", username, err)
+		}
+	}
+
+	return nil
+}
+
+func kickstartPlist(domain, plistPath string) error {
+	label := fmt.Sprintf("%s/%s", domain, strings.TrimSuffix(filepath.Base(plistPath), ".plist"))
+	cmd := exec.Command("launchctl", "kickstart", "-k", label)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		output := strings.TrimSpace(string(out))
+		return fmt.Errorf("launchctl kickstart %s: %w (output=%s)", label, err, output)
+	}
+
+	return nil
+}

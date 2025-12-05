@@ -251,3 +251,64 @@ func RemoveUser(
 
 	return st, nil
 }
+
+func UpdateUserCode(
+	ctx context.Context,
+	cfg config.Config,
+	st state.State,
+	outputDir string,
+) (state.State, error) {
+	if len(st.Users) == 0 {
+		return st, errors.New("no existing users in state; nothing to update")
+	}
+
+	if strings.TrimSpace(outputDir) == "" {
+		return st, errors.New("outputDir is empty")
+	}
+
+	extractDir, err := refreshServiceArchive(ctx, cfg, outputDir)
+	if err != nil {
+		return st, fmt.Errorf("refresh service archive: %w", err)
+	}
+
+	statuses, err := CheckUserServices(ctx, cfg, st)
+	if err != nil {
+		return st, fmt.Errorf("pre-check services: %w", err)
+	}
+	statusByUser := make(map[string]UserServiceStatus, len(statuses))
+	for _, s := range statuses {
+		statusByUser[s.Name] = s
+	}
+
+	for _, u := range st.Users {
+		homeDir := filepath.Join("/Users", u.Name)
+		serviceDir := filepath.Join(homeDir, "services", "imsg")
+		fi, err := os.Stat(serviceDir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return st, fmt.Errorf("service directory %s does not exist for user %s", serviceDir, u.Name)
+			}
+			return st, fmt.Errorf("stat service directory %s: %w", serviceDir, err)
+		}
+		if !fi.IsDir() {
+			return st, fmt.Errorf("service path %s exists but is not a directory for user %s", serviceDir, u.Name)
+		}
+
+		if err := syncServiceDir(extractDir, serviceDir); err != nil {
+			return st, fmt.Errorf("sync service directory for %s: %w", u.Name, err)
+		}
+
+		if err := chownRecursive(u.Name, serviceDir); err != nil {
+			return st, fmt.Errorf("chown service directory for %s: %w", u.Name, err)
+		}
+
+		if stItem, ok := statusByUser[u.Name]; ok && stItem.ServiceDirOK && stItem.PortListening {
+			if err := restartUserLaunchAgents(u.Name); err != nil {
+				return st, fmt.Errorf("restart services for %s: %w", u.Name, err)
+			}
+		}
+	}
+
+	st.Initialized = true
+	return st, nil
+}

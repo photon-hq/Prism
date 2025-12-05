@@ -56,6 +56,14 @@ func runViewUsersCmd() tea.Cmd {
 	}
 }
 
+func runUpdateUsersCodeCmd() tea.Cmd {
+	return func() tea.Msg {
+		init := host.NewInitializer(paths.ConfigPath(), paths.StatePath())
+		res, err := init.UpdateUserCode(context.Background())
+		return provisionDoneMsg{result: res, err: err}
+	}
+}
+
 // runServicesCmd runs the services status inspection and returns a
 // servicesDoneMsg for the UI to render.
 func runServicesCmd() tea.Cmd {

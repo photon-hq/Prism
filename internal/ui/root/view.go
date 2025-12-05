@@ -47,6 +47,10 @@ func (m Model) View() string {
 			desc:  "View current Prism users and their state",
 		},
 		{
+			title: "Update user code",
+			desc:  "Download latest service bundle and update all Prism users",
+		},
+		{
 			title: "Services status",
 			desc:  "Check service status for each Prism user",
 		},
@@ -103,6 +107,8 @@ func (m Model) View() string {
 			title = "[x] Failed to load users"
 		case provisionKindRemove:
 			title = "[x] Remove user failed"
+		case provisionKindUpdate:
+			title = "[x] Update user code failed"
 		}
 		b.WriteString(checkFailStyle.Render("  "+title) + "\n")
 
@@ -305,6 +311,8 @@ func (m Model) View() string {
 			b.WriteString("  " + activeTitle.Render("Add users") + "\n")
 		case provisionKindView:
 			b.WriteString("  " + activeTitle.Render("View users") + "\n")
+		case provisionKindUpdate:
+			b.WriteString("  " + activeTitle.Render("Update user code") + "\n")
 		case provisionKindRemove:
 			b.WriteString("  " + activeTitle.Render("Remove user") + "\n")
 		}
@@ -331,6 +339,8 @@ func (m Model) View() string {
 				msg = "Adding users and provisioning services. Please wait..."
 			case provisionKindRemove:
 				msg = "Removing user and cleaning up services. Please wait..."
+			case provisionKindUpdate:
+				msg = "Updating Prism user code for all users. Please wait..."
 			}
 			b.WriteString("  " + subtleText.Render(msg) + "\n")
 
@@ -352,6 +362,9 @@ func (m Model) View() string {
 					b.WriteString("  " + checkOKStyle.Render(fmt.Sprintf("📋 Select user to remove (%d total)", n)) + "\n")
 					b.WriteString("  " + subtleText.Render("Use ↑/↓ to select, Enter to confirm, q to cancel") + "\n")
 				}
+			case provisionKindUpdate:
+				b.WriteString("  " + checkOKStyle.Render("🎉 Successfully updated user code!") + "\n")
+				b.WriteString("  " + subtleText.Render(fmt.Sprintf("Updated code for %d Prism users.", n)) + "\n")
 			default:
 				// Initial setup success
 				b.WriteString("  " + checkOKStyle.Render("🎉 Setup completed successfully!") + "\n")
