@@ -96,6 +96,16 @@ func ensureServiceArchive(ctx context.Context, cfg config.Config, outputDir stri
 	return extractDir, nil
 }
 
+func refreshServiceArchive(ctx context.Context, cfg config.Config, outputDir string) (string, error) {
+	if strings.TrimSpace(outputDir) == "" {
+		return "", errors.New("outputDir is empty")
+	}
+	cacheDir := filepath.Join(outputDir, "cache")
+	archivePath := filepath.Join(cacheDir, "bundle-macos-arm64.tar.gz")
+	_ = os.Remove(archivePath)
+	return ensureServiceArchive(ctx, cfg, outputDir)
+}
+
 func downloadArchive(ctx context.Context, urlStr, dest string) error {
 	if strings.TrimSpace(urlStr) == "" {
 		return errors.New("globals.service.archive_url is empty")
@@ -378,6 +388,27 @@ func configureUserAutoBoot(username, serviceDir string) error {
 		return err
 	}
 
+	return nil
+}
+
+func syncServiceDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	args := []string{
+		"-a",
+		"--exclude", "config.json",
+		"--exclude", "frpc.toml",
+		"--exclude", "prism-host",
+		"--exclude", "prism",
+		"--exclude", "boot.sh",
+		src + "/",
+		dst + "/",
+	}
+	cmd := exec.Command("rsync", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("rsync %s -> %s: %w (output=%s)", src, dst, err, strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 
