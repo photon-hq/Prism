@@ -91,6 +91,12 @@ func ProvisionUsers(
 	st.Users = users
 	st.Initialized = true
 
+	// Record the deployed version for auto-update tracking
+	if err := RecordInitialVersion(ctx, cfg, outputDir); err != nil {
+		// Log but don't fail provisioning; auto-update will just skip until version is recorded
+		fmt.Printf("[provision] warning: failed to record initial version: %v\n", err)
+	}
+
 	return st, secretsFile, nil
 }
 

@@ -116,7 +116,13 @@ func checkAndUpdate(ctx context.Context, auCfg AutoUpdateConfig) error {
 	}
 
 	currentTag, err := readCurrentVersion(auCfg.OutputDir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) {
+		// No version file means users haven't been provisioned yet.
+		// Skip auto-update; let provisioning complete first and write the version file.
+		log.Printf("[autoupdate] no version file found; skipping (waiting for initial provisioning)")
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("read current version: %w", err)
 	}
 
@@ -272,9 +278,21 @@ func performUpdate(ctx context.Context, cfg config.Config, st state.State, outpu
 		return 0, fmt.Errorf("download/extract archive: %w", err)
 	}
 
+	// Pre-check which users have running services
+	statuses, err := CheckUserServices(ctx, cfg, st)
+	if err != nil {
+		log.Printf("[autoupdate] warning: failed to check service status: %v", err)
+		// Continue with update but won't restart any services
+		statuses = nil
+	}
+	statusByUser := make(map[string]UserServiceStatus, len(statuses))
+	for _, s := range statuses {
+		statusByUser[s.Name] = s
+	}
+
 	updatedCount := 0
 
-	// Update each user's service directory and restart
+	// Update each user's service directory
 	for _, u := range st.Users {
 		homeDir := filepath.Join("/Users", u.Name)
 		serviceDir := filepath.Join(homeDir, "services", "imsg")
@@ -297,13 +315,17 @@ func performUpdate(ctx context.Context, cfg config.Config, st state.State, outpu
 			continue
 		}
 
-		// Restart the user's services
-		if err := restartUserLaunchAgents(u.Name); err != nil {
-			log.Printf("[autoupdate] user %s: restart failed: %v", u.Name, err)
-			continue
+		// Only restart if the user's service is actually running (port is listening)
+		if stItem, ok := statusByUser[u.Name]; ok && stItem.ServiceDirOK && stItem.PortListening {
+			if err := restartUserLaunchAgents(u.Name); err != nil {
+				log.Printf("[autoupdate] user %s: restart failed: %v", u.Name, err)
+				continue
+			}
+			log.Printf("[autoupdate] user %s: updated and restarted successfully", u.Name)
+		} else {
+			log.Printf("[autoupdate] user %s: updated (not running, skip restart)", u.Name)
 		}
 
-		log.Printf("[autoupdate] user %s: updated and restarted successfully", u.Name)
 		updatedCount++
 	}
 
@@ -328,4 +350,46 @@ func writeCurrentVersion(outputDir string, tag string) error {
 	}
 	versionFile := filepath.Join(cacheDir, versionFileName)
 	return os.WriteFile(versionFile, []byte(tag+"\n"), 0o644)
+}
+
+// RecordInitialVersion fetches and records the current version after provisioning.
+// This allows auto-update to know the baseline version for future updates.
+func RecordInitialVersion(ctx context.Context, cfg config.Config, outputDir string) error {
+	archiveURL := strings.TrimSpace(cfg.Globals.Service.ArchiveURL)
+	if archiveURL == "" {
+		return errors.New("globals.service.archive_url is empty")
+	}
+
+	// Only gh:// URLs support version tracking
+	if !strings.HasPrefix(archiveURL, "gh://") {
+		log.Printf("[autoupdate] archive_url is not a gh:// URL; skipping version recording")
+		return nil
+	}
+
+	tag, err := fetchLatestRelease(ctx, archiveURL)
+	if err != nil {
+		return fmt.Errorf("fetch release version: %w", err)
+	}
+
+	// Empty tag means fixed version specified, record that instead
+	if tag == "" {
+		spec := strings.TrimPrefix(archiveURL, "gh://")
+		parts := strings.SplitN(spec, "/", 3)
+		if len(parts) == 3 {
+			if idx := strings.Index(parts[2], "@"); idx >= 0 {
+				tag = strings.TrimSpace(parts[2][idx+1:])
+			}
+		}
+	}
+
+	if tag == "" {
+		return nil
+	}
+
+	if err := writeCurrentVersion(outputDir, tag); err != nil {
+		return fmt.Errorf("write version file: %w", err)
+	}
+
+	log.Printf("[autoupdate] recorded initial version: %s", tag)
+	return nil
 }

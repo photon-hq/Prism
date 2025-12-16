@@ -56,6 +56,8 @@ func main() {
 		}
 		infrahost.RunAutoUpdateLoop(ctx, auCfg)
 
+		// Stop signal notification to avoid race with defer cancel()
+		signal.Stop(sigCh)
 		return
 
 	case "user":
