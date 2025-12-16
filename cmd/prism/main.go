@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -27,7 +31,30 @@ func main() {
 
 	switch mode {
 	case "host-autoboot":
+		// First, bootstrap all user LaunchAgents
 		infrahost.RunAutoboot(paths.StatePath())
+
+		// Set up signal handling for graceful shutdown
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+		go func() {
+			<-sigCh
+			log.Println("[host-autoboot] received shutdown signal")
+			cancel()
+		}()
+
+		// Start the auto-update loop (runs forever until context is cancelled)
+		auCfg := infrahost.AutoUpdateConfig{
+			CheckInterval: 1 * time.Hour,
+			OutputDir:     paths.OutputDir(),
+			ConfigPath:    paths.ConfigPath(),
+			StatePath:     paths.StatePath(),
+		}
+		infrahost.RunAutoUpdateLoop(ctx, auCfg)
 
 		return
 

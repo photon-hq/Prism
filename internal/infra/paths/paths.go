@@ -28,6 +28,11 @@ func SecretsPath() string {
 	return filepath.Join(dir, "secrets", "users.csv")
 }
 
+func OutputDir() string {
+	state := StatePath()
+	return filepath.Dir(state)
+}
+
 func resolvePath(envKey, defaultRel string) string {
 	if v := strings.TrimSpace(os.Getenv(envKey)); v != "" {
 		return makeAbsolute(v)
