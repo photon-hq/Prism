@@ -90,8 +90,8 @@ func (c FRPCConfig) validate() error {
 		return errors.New("globals.frpc.server_addr is required")
 	}
 
-	if c.ServerPort <= 0 {
-		return errors.New("globals.frpc.server_port must be positive")
+	if c.ServerPort <= 0 || c.ServerPort > 65535 {
+		return errors.New("globals.frpc.server_port must be between 1 and 65535")
 	}
 
 	return nil
@@ -102,8 +102,8 @@ func (s ServiceConfig) validate() error {
 		return errors.New("globals.service.archive_url is required")
 	}
 
-	if s.StartPort <= 0 {
-		return errors.New("globals.service.start_port must be positive")
+	if s.StartPort <= 0 || s.StartPort > 65535 {
+		return errors.New("globals.service.start_port must be between 1 and 65535")
 	}
 
 	return nil

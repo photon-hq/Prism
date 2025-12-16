@@ -47,10 +47,10 @@ When you run `sudo ./prism`, it does these things in order:
 1. Preflight Checks
    - Runs: csrutil status
      → Must show "disabled"
-   
-   - Runs: nvram boot-args  
+
+   - Runs: nvram boot-args
      → Must contain: amfi_get_out_of_my_way=1, amfi_allow_any_signature=1, etc.
-   
+
    - Runs: defaults read /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation
      → Must be 1 or true
 
@@ -233,7 +233,7 @@ csrutil status
 
 # Check 2: boot-args must have AMFI flags
 nvram boot-args
-# → must contain: amfi_get_out_of_my_way=1, amfi_allow_any_signature=1, 
+# → must contain: amfi_get_out_of_my_way=1, amfi_allow_any_signature=1,
 #   -arm64e_preview_abi, ipc_control_port_options=0
 
 # Check 3: Library validation must be disabled
@@ -255,7 +255,7 @@ node --version
 # If missing → brew install node@18
 
 # Check frpc
-frpc --version  
+frpc --version
 # If missing → brew install frpc
 ```
 

@@ -63,6 +63,9 @@ func Save(path string, s State) error {
 	}
 
 	tmpPath := path + ".tmp"
+	// Clean up tmp file if rename fails
+	defer func() { _ = os.Remove(tmpPath) }()
+
 	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
 		return fmt.Errorf("write temp state: %w", err)
 	}
