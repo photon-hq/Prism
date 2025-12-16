@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -56,9 +57,13 @@ type cmdRunner struct {
 	sudoUser string // The original non-root user when running under sudo
 }
 
+// validUsername matches typical Unix usernames: alphanumeric, underscore, hyphen.
+var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 func newCmdRunner() cmdRunner {
 	sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
-	if sudoUser == "root" {
+	// Ignore if SUDO_USER is root, empty, or contains invalid characters
+	if sudoUser == "" || sudoUser == "root" || !validUsername.MatchString(sudoUser) {
 		sudoUser = ""
 	}
 	return cmdRunner{sudoUser: sudoUser}
@@ -143,8 +148,9 @@ func ensureHomebrew(ctx context.Context, r Runner) (Item, bool) {
 		}, true
 	}
 
-	// If running as root without SUDO_USER, we cannot install Homebrew
-	if os.Geteuid() == 0 && os.Getenv("SUDO_USER") == "" {
+	// If running as root without valid SUDO_USER, we cannot install Homebrew
+	sudoUser := os.Getenv("SUDO_USER")
+	if os.Geteuid() == 0 && (sudoUser == "" || sudoUser == "root") {
 		return Item{
 			Name:   NameHomebrew,
 			OK:     false,
