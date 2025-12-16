@@ -3,7 +3,9 @@ package deps
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -51,17 +53,62 @@ func (f RunnerFunc) Run(ctx context.Context, name string, args ...string) (strin
 	return f(ctx, name, args...)
 }
 
-type cmdRunner struct{}
+type cmdRunner struct {
+	sudoUser string // The original non-root user when running under sudo
+}
 
-func (cmdRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+// validUsername matches typical Unix usernames: alphanumeric, underscore, hyphen.
+var validUsername = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func newCmdRunner() cmdRunner {
+	sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+	// Ignore if SUDO_USER is root, empty, or contains invalid characters
+	if sudoUser == "" || sudoUser == "root" || !validUsername.MatchString(sudoUser) {
+		sudoUser = ""
+	}
+	return cmdRunner{sudoUser: sudoUser}
+}
+
+func (r cmdRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	// If sudoUser is set and command needs user context, run via su
+	if r.sudoUser != "" && needsUserContext(name) {
+		return r.runAsUser(ctx, name, args...)
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 
+// needsUserContext returns true for commands that must run as non-root.
+func needsUserContext(name string) bool {
+	switch name {
+	case "brew", "node", "/bin/bash":
+		return true
+	default:
+		return false
+	}
+}
+
+func (r cmdRunner) runAsUser(ctx context.Context, name string, args ...string) (string, error) {
+	cmdStr := shellQuote(name)
+	for _, arg := range args {
+		cmdStr += " " + shellQuote(arg)
+	}
+	cmd := exec.CommandContext(ctx, "su", "-", r.sudoUser, "-c", cmdStr)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
 // Ensure checks and installs required dependencies (Homebrew, Node, frpc).
 func Ensure(ctx context.Context) (Result, error) {
-	return EnsureWithRunner(ctx, cmdRunner{})
+	return EnsureWithRunner(ctx, newCmdRunner())
 }
 
 func EnsureWithRunner(ctx context.Context, r Runner) (Result, error) {
@@ -101,14 +148,28 @@ func ensureHomebrew(ctx context.Context, r Runner) (Item, bool) {
 		}, true
 	}
 
-	const installCmd = "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
-	installOut, installErr := r.Run(ctx, "/bin/bash", "-c", installCmd)
+	// If running as root without valid SUDO_USER, we cannot install Homebrew
+	sudoUser := os.Getenv("SUDO_USER")
+	if os.Geteuid() == 0 && (sudoUser == "" || sudoUser == "root") {
+		return Item{
+			Name:   NameHomebrew,
+			OK:     false,
+			Action: ActionInstallFailed,
+			Detail: "Homebrew is not installed and cannot be installed as root.\n\n" +
+				"Please install Homebrew manually as a non-root user:\n\n" +
+				"  /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n" +
+				"Then run `sudo ./prism` again.",
+		}, false
+	}
+
+	const installScript = "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+	installOut, installErr := r.Run(ctx, "/bin/bash", "-c", installScript)
 	if installErr != nil {
 		return Item{
 			Name:   NameHomebrew,
 			OK:     false,
 			Action: ActionInstallFailed,
-			Detail: fmt.Sprintf("Failed to install Homebrew automatically: %v\nCommand: %s\nOutput: %s", installErr, installCmd, installOut),
+			Detail: fmt.Sprintf("Failed to install Homebrew: %v\nOutput: %s", installErr, installOut),
 		}, false
 	}
 
@@ -118,7 +179,7 @@ func ensureHomebrew(ctx context.Context, r Runner) (Item, bool) {
 			Name:   NameHomebrew,
 			OK:     false,
 			Action: ActionInstallUncertain,
-			Detail: fmt.Sprintf("Homebrew installation was attempted, but `brew --version` failed: %v\nOutput: %s", err, out),
+			Detail: fmt.Sprintf("Homebrew installation attempted, but `brew --version` failed: %v\nOutput: %s", err, out),
 		}, false
 	}
 
@@ -146,7 +207,7 @@ func ensureNode(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameNode,
 			OK:     false,
 			Action: ActionBlockedNoBrew,
-			Detail: "Node.js is not installed and Homebrew is missing. Please install Homebrew first, then install Node via brew (for example: brew install node@18).",
+			Detail: "Node.js is not installed and Homebrew is missing. Please install Homebrew first.",
 		}
 	}
 
@@ -156,7 +217,7 @@ func ensureNode(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameNode,
 			OK:     false,
 			Action: ActionInstallFailed,
-			Detail: fmt.Sprintf("Failed to install node@18 via brew: %v\nOutput: %s", installErr, installOut),
+			Detail: fmt.Sprintf("Failed to install node@18: %v\nOutput: %s", installErr, installOut),
 		}
 	}
 
@@ -166,7 +227,7 @@ func ensureNode(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameNode,
 			OK:     false,
 			Action: ActionInstallUncertain,
-			Detail: fmt.Sprintf("node@18 was installed via brew, but `brew link --overwrite --force node@18` failed: %v\nOutput: %s", linkErr, linkOut),
+			Detail: fmt.Sprintf("node@18 installed, but brew link failed: %v\nOutput: %s", linkErr, linkOut),
 		}
 	}
 
@@ -176,7 +237,7 @@ func ensureNode(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameNode,
 			OK:     false,
 			Action: ActionInstallUncertain,
-			Detail: fmt.Sprintf("node@18 appears to have been installed via brew, but `node --version` failed: %v\nOutput: %s", err, out),
+			Detail: fmt.Sprintf("node@18 installed, but `node --version` failed: %v\nOutput: %s", err, out),
 		}
 	}
 
@@ -204,7 +265,7 @@ func ensureFRPC(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameFRPC,
 			OK:     false,
 			Action: ActionBlockedNoBrew,
-			Detail: "frpc is not installed and Homebrew is missing. Please install Homebrew first, then install frpc via brew (for example: brew install frpc).",
+			Detail: "frpc is not installed and Homebrew is missing. Please install Homebrew first.",
 		}
 	}
 
@@ -214,7 +275,7 @@ func ensureFRPC(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameFRPC,
 			OK:     false,
 			Action: ActionInstallFailed,
-			Detail: fmt.Sprintf("Failed to install frpc via brew: %v\nOutput: %s", installErr, installOut),
+			Detail: fmt.Sprintf("Failed to install frpc: %v\nOutput: %s", installErr, installOut),
 		}
 	}
 
@@ -224,7 +285,7 @@ func ensureFRPC(ctx context.Context, r Runner, hasBrew bool) Item {
 			Name:   NameFRPC,
 			OK:     false,
 			Action: ActionInstallUncertain,
-			Detail: fmt.Sprintf("frpc appears to have been installed via brew, but `frpc -v` failed: %v\nOutput: %s", err, out),
+			Detail: fmt.Sprintf("frpc installed, but `frpc -v` failed: %v\nOutput: %s", err, out),
 		}
 	}
 
