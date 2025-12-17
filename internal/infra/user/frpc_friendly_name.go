@@ -28,7 +28,10 @@ SELECT
   END AS my_account
 FROM message
 WHERE is_from_me = 1
-  AND (destination_caller_id IS NOT NULL OR account IS NOT NULL)
+  AND (
+    (destination_caller_id IS NOT NULL AND destination_caller_id != '')
+    OR (account IS NOT NULL AND account != '')
+  )
 ORDER BY
   CASE 
     WHEN destination_caller_id IS NOT NULL AND destination_caller_id != '' THEN 0
