@@ -23,12 +23,11 @@ func RenameFriendlyName(name string) string {
 		return fmt.Sprintf("Failed to update friendly name: %v", err)
 	}
 
-	username, domain, err := currentUserLaunchDomain()
+	username, err := currentUsername()
 	if err != nil {
 		return fmt.Sprintf("Friendly name updated, but failed to restart frpc: %v", err)
 	}
-	label := fmt.Sprintf("%s/"+launchAgentFRPCLabelPattern, domain, username)
-	if err := runLaunchctl("kickstart", "-k", label); err != nil {
+	if err := launchctl("kickstart", "-k", "system/"+fmt.Sprintf(launchDaemonFRPCLabel, username)); err != nil {
 		return fmt.Sprintf("Friendly name updated, but failed to restart frpc: %v", err)
 	}
 

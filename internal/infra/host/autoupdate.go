@@ -317,7 +317,7 @@ func performUpdate(ctx context.Context, cfg config.Config, st state.State, outpu
 
 		// Only restart if the user's service is actually running (port is listening)
 		if stItem, ok := statusByUser[u.Name]; ok && stItem.ServiceDirOK && stItem.PortListening {
-			if err := restartUserLaunchAgents(u.Name); err != nil {
+			if err := RestartUserDaemons(u.Name); err != nil {
 				log.Printf("[autoupdate] user %s: restart failed: %v", u.Name, err)
 				continue
 			}

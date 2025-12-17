@@ -233,6 +233,10 @@ func RemoveUser(
 	}
 
 	homeDir := filepath.Join("/Users", username)
+
+	// Remove LaunchDaemons first (bootout and delete plist files)
+	_ = RemoveUserLaunchDaemons(username)
+
 	cmd := exec.CommandContext(ctx, "sysadminctl",
 		"-deleteUser", username,
 		"-home", homeDir,
@@ -309,7 +313,7 @@ func UpdateUserCode(
 		}
 
 		if stItem, ok := statusByUser[u.Name]; ok && stItem.ServiceDirOK && stItem.PortListening {
-			if err := restartUserLaunchAgents(u.Name); err != nil {
+			if err := RestartUserDaemons(u.Name); err != nil {
 				return st, fmt.Errorf("restart services for %s: %w", u.Name, err)
 			}
 		}

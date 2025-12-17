@@ -31,7 +31,7 @@ func main() {
 
 	switch mode {
 	case "host-autoboot":
-		// First, bootstrap all user LaunchAgents
+		// Bootstrap all user LaunchDaemons (safety net, they should already be running via RunAtLoad)
 		infrahost.RunAutoboot(paths.StatePath())
 
 		// Set up signal handling for graceful shutdown

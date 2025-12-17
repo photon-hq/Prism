@@ -36,6 +36,12 @@ func runStopAllServicesCmd() tea.Cmd {
 	}
 }
 
+func runStartAllServicesCmd() tea.Cmd {
+	return func() tea.Msg {
+		return stopDoneMsg{status: userinfra.StartAllServices()}
+	}
+}
+
 func runRestartServerCmd() tea.Cmd {
 	return func() tea.Msg {
 		return stopDoneMsg{status: userinfra.RestartServer()}
