@@ -56,8 +56,8 @@ func StartAllServices() string {
 
 	_ = launchctl("enable", "system/"+serverLabel)
 	_ = launchctl("enable", "system/"+frpcLabel)
-	_ = launchctl("bootstrap", "system", frpcPlist)
-	_ = launchctl("bootstrap", "system", serverPlist)
+	_ = launchctlBootstrap("system", frpcPlist)
+	_ = launchctlBootstrap("system", serverPlist)
 	_ = launchctl("kickstart", "-k", "system/"+frpcLabel)
 	_ = launchctl("kickstart", "-k", "system/"+serverLabel)
 
@@ -103,6 +103,19 @@ func launchctl(args ...string) error {
 	out, err := exec.Command("launchctl", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("launchctl %s: %w (output=%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// launchctlBootstrap wraps launchctl bootstrap and tolerates "already bootstrapped" errors.
+func launchctlBootstrap(domain, plistPath string) error {
+	out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+	if err != nil {
+		output := strings.TrimSpace(string(out))
+		if strings.Contains(output, "already bootstrapped") || strings.Contains(output, "EEXIST") {
+			return nil
+		}
+		return fmt.Errorf("launchctl bootstrap %s %s: %w (output=%s)", domain, plistPath, err, output)
 	}
 	return nil
 }
