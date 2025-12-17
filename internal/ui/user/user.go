@@ -108,7 +108,7 @@ func (m Model) updateForKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.cursor < 7 {
+		if m.cursor < 8 {
 			m.cursor++
 		}
 		return m, nil
@@ -132,18 +132,22 @@ func (m Model) updateForKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, runStopAllServicesCmd()
 		case 4:
 			m.busy = true
+			m.status = "Starting the local Prism server and frpc..."
+			return m, runStartAllServicesCmd()
+		case 5:
+			m.busy = true
 			m.status = "Restarting the local Prism server..."
 			return m, runRestartServerCmd()
-		case 5:
+		case 6:
 			m.busy = true
 			m.status = "Restarting frpc..."
 			return m, runRestartFRPCCmd()
-		case 6:
+		case 7:
 			m.renaming = true
 			m.renameInput = ""
 			m.status = "Enter a new friendly name, then press Enter to confirm (Esc to cancel)."
 			return m, nil
-		case 7:
+		case 8:
 			return m, tea.Quit
 		}
 	}

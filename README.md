@@ -64,10 +64,12 @@ When you run `sudo ./prism`, it does these things in order:
    - Each gets a random password (saved to output/secrets/users.csv)
    - Downloads server bundle to /Users/mymac-1/services/imsg/
    - Writes config.json and frpc.toml for each user
+   - Creates LaunchDaemons in /Library/LaunchDaemons/ (auto-start at boot)
 
 4. Set Up Auto-Start
    - Installs /Library/LaunchDaemons/com.prism.host-autoboot.plist
-   - On reboot, this daemon starts all user services automatically
+   - Creates per-user LaunchDaemons with UserName key (runs as that user)
+   - Services start automatically at boot, no login required
 ```
 
 ### Step 2: User Deploy
@@ -82,10 +84,8 @@ After logging into a created user (e.g., `mymac-1`), run `./prism user`:
 2. Deploy Services
    - Reads ~/services/imsg/config.json
    - Queries chat.db to find your phone number or email
-   - Creates two LaunchAgents:
-     - com.imsg.server.mymac-1.plist (the iMessage server)
-     - com.imsg.frpc.mymac-1.plist (the tunnel)
-   - Starts both with: launchctl bootstrap gui/501 <plist>
+   - Verifies LaunchDaemons exist (created by Host setup)
+   - Kicks start services if not running
    - Waits for health check: http://localhost:10001/health
 
 3. Get API Key
@@ -117,10 +117,11 @@ Prism/
 │   ├── host/
 │   │   ├── users_provision.go  # Creates macOS users with sysadminctl
 │   │   ├── per_user_files.go   # Downloads bundle, writes config.json/frpc.toml
+│   │   ├── launch_daemons.go   # Creates LaunchDaemons with UserName key
 │   │   ├── autoboot_daemon.go  # Installs the host LaunchDaemon
-│   │   └── autoboot_run.go     # Called on reboot to start user services
+│   │   └── autoboot_run.go     # Ensures daemons are running on reboot
 │   ├── user/
-│   │   ├── deploy.go           # Creates and starts LaunchAgents
+│   │   ├── deploy.go           # Verifies and kicks start LaunchDaemons
 │   │   ├── frpc_friendly_name.go  # Queries chat.db for phone/email
 │   │   ├── key.go              # Requests API key from backend
 │   │   └── permissions.go      # Triggers permission dialogs
@@ -267,19 +268,25 @@ Creates macOS users using the built-in `sysadminctl`:
 sysadminctl -addUser mymac-1 -fullName mymac-1 -password "RandomPass123" -home /Users/mymac-1
 ```
 
-### Service Deployment (`internal/infra/user/deploy.go`)
+### Service Deployment (`internal/infra/host/launch_daemons.go`)
 
-Creates two plist files in `~/Library/LaunchAgents/`:
+Creates LaunchDaemon plist files in `/Library/LaunchDaemons/`:
 
 - `com.imsg.server.mymac-1.plist` - runs the iMessage server
 - `com.imsg.frpc.mymac-1.plist` - runs the frpc tunnel
 
-Then starts them:
+These use the `UserName` key to run as the specified user at system boot:
 
-```bash
-launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.imsg.server.mymac-1.plist
-launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.imsg.frpc.mymac-1.plist
+```xml
+<key>UserName</key>
+<string>mymac-1</string>
+<key>RunAtLoad</key>
+<true/>
+<key>KeepAlive</key>
+<true/>
 ```
+
+This is Apple's recommended approach for headless services that need to start at boot without user login.
 
 ### Phone Number Detection (`internal/infra/user/frpc_friendly_name.go`)
 

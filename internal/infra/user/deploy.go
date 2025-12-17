@@ -15,74 +15,6 @@ import (
 	"time"
 )
 
-const (
-	launchAgentServerLabelPattern = "com.imsg.server.%s"
-	launchAgentFRPCLabelPattern   = "com.imsg.frpc.%s"
-)
-
-const userServerLaunchAgentPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>com.imsg.server.%s</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>%s</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>%s</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-      <key>NODE_ENV</key>
-      <string>production</string>
-      <key>PORT</key>
-      <string>%d</string>
-      <key>MACHINE_ID</key>
-      <string>%s</string>
-      <key>NEXUS_BASE_URL</key>
-      <string>%s</string>
-      <key>PATH</key>
-      <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/opt/homebrew/opt/node@18/bin</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>%s</string>
-    <key>StandardErrorPath</key>
-    <string>%s</string>
-  </dict>
-</plist>
-`
-
-const userFRPCLaunchAgentPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>com.imsg.frpc.%s</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>%s</string>
-      <string>-c</string>
-      <string>%s</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>%s</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>%s</string>
-    <key>StandardErrorPath</key>
-    <string>%s</string>
-  </dict>
-</plist>
-`
-
 type userServiceConfig struct {
 	Username   string `json:"username"`
 	MachineID  string `json:"machine_id"`
@@ -92,7 +24,8 @@ type userServiceConfig struct {
 	FRPCConfig string `json:"frpc_config"`
 }
 
-// Deploy creates per-user LaunchAgents for the server and frpc, then starts them.
+// Deploy verifies configuration, ensures friendly name, and performs health check.
+// LaunchDaemons should already be created by Host provisioning.
 func Deploy() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -110,30 +43,28 @@ func Deploy() string {
 		return errMsg
 	}
 
-	imsgBin, errMsg := ensureServerWrapperBinary(serviceDir)
-	if errMsg != "" {
-		return errMsg
-	}
-
-	frpcBin, errMsg := locateFRPCBinary()
-	if errMsg != "" {
-		return errMsg
-	}
-
 	nodeNote := nodeVersionNote()
 
-	username, domain, err := currentUserLaunchDomain()
+	u, err := user.Current()
 	if err != nil {
-		return fmt.Sprintf("Deploy failed: unable to get current user info: %v", err)
+		return fmt.Sprintf("Deploy failed: unable to get current user: %v", err)
 	}
 
-	frpcPlistPath, serverPlistPath, errMsg := writeUserLaunchAgents(home, serviceDir, username, cfg, frpcBin, imsgBin)
-	if errMsg != "" {
-		return errMsg
+	// Check if LaunchDaemons exist
+	serverLabel := fmt.Sprintf(launchDaemonServerLabel, u.Username)
+	frpcLabel := fmt.Sprintf(launchDaemonFRPCLabel, u.Username)
+	serverPlistPath := filepath.Join("/Library/LaunchDaemons", serverLabel+".plist")
+
+	if _, err := os.Stat(serverPlistPath); err != nil {
+		return fmt.Sprintf("Deploy failed: LaunchDaemon not found: %s\n\nPlease run the Host setup first (sudo ./prism) to create LaunchDaemons.", serverPlistPath)
 	}
 
-	if errMsg := restartUserLaunchAgents(domain, username, frpcPlistPath, serverPlistPath); errMsg != "" {
-		return errMsg
+	// Kickstart the services to ensure they're running
+	if err := launchctl("kickstart", "-k", "system/"+frpcLabel); err != nil {
+		return fmt.Sprintf("Deploy failed: could not start frpc: %v", err)
+	}
+	if err := launchctl("kickstart", "-k", "system/"+serverLabel); err != nil {
+		return fmt.Sprintf("Deploy failed: could not start server: %v", err)
 	}
 
 	healthURL := fmt.Sprintf("http://localhost:%d/health", cfg.LocalPort)
@@ -145,7 +76,7 @@ func Deploy() string {
 	serverLog := filepath.Join(home, "Library", "Logs", "imsg-server.log")
 
 	return fmt.Sprintf(
-		"Deploy succeeded: Prism server and frpc have been started.\nLocal health OK: %s%s\n\nTo view logs:\n- tail -100 %s\n- tail -100 %s%s",
+		"Deploy succeeded: Prism server and frpc are running.\nLocal health OK: %s%s\n\nTo view logs:\n- tail -100 %s\n- tail -100 %s%s",
 		healthURL,
 		friendlyNote,
 		frpcLog,
@@ -242,22 +173,6 @@ func ensureFRPCFriendlyName(path string) (string, string) {
 	return friendlyNote, ""
 }
 
-func ensureServerWrapperBinary(serviceDir string) (string, string) {
-	imsgBin := filepath.Join(serviceDir, "iMessageKitServer.app", "Contents", "MacOS", "iMessageKitServer")
-	if fi, err := os.Stat(imsgBin); err != nil || fi.Mode()&0o111 == 0 {
-		return "", fmt.Sprintf("Deploy failed: iMessageKitServer wrapper not found or not executable: %s", imsgBin)
-	}
-	return imsgBin, ""
-}
-
-func locateFRPCBinary() (string, string) {
-	frpcBin, err := exec.LookPath("frpc")
-	if err != nil {
-		return "", "Deploy failed: frpc not found; please complete dependency installation from the Host TUI first."
-	}
-	return frpcBin, ""
-}
-
 func nodeVersionNote() string {
 	nodeBin, err := exec.LookPath("node")
 	if err != nil {
@@ -286,61 +201,4 @@ func nodeVersionNote() string {
 	}
 
 	return fmt.Sprintf("\nNote: detected Node version %s; Node v18 is recommended for best compatibility.", ver)
-}
-
-func writeUserLaunchAgents(home, serviceDir, username string, cfg userServiceConfig, frpcBin, imsgBin string) (string, string, string) {
-	agentsDir := filepath.Join(home, "Library", "LaunchAgents")
-	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
-		return "", "", fmt.Sprintf("Deploy failed: unable to create LaunchAgents directory: %v", err)
-	}
-
-	serverPlistPath := filepath.Join(agentsDir, fmt.Sprintf(launchAgentServerLabelPattern+".plist", username))
-	serverPlist := fmt.Sprintf(
-		userServerLaunchAgentPlistTemplate,
-		username,
-		imsgBin,
-		serviceDir,
-		cfg.LocalPort,
-		cfg.MachineID,
-		strings.TrimRight(cfg.NexusAddr, "/"),
-		filepath.Join(home, "Library", "Logs", "imsg-server.log"),
-		filepath.Join(home, "Library", "Logs", "imsg-server.err"),
-	)
-
-	if err := os.WriteFile(serverPlistPath, []byte(serverPlist), 0o644); err != nil {
-		return "", "", fmt.Sprintf("Deploy failed: error writing server LaunchAgent: %v", err)
-	}
-
-	frpcPlistPath := filepath.Join(agentsDir, fmt.Sprintf(launchAgentFRPCLabelPattern+".plist", username))
-	frpcPlist := fmt.Sprintf(
-		userFRPCLaunchAgentPlistTemplate,
-		username,
-		frpcBin,
-		cfg.FRPCConfig,
-		serviceDir,
-		filepath.Join(home, "Library", "Logs", "frpc.log"),
-		filepath.Join(home, "Library", "Logs", "frpc.err"),
-	)
-
-	if err := os.WriteFile(frpcPlistPath, []byte(frpcPlist), 0o644); err != nil {
-		return "", "", fmt.Sprintf("Deploy failed: error writing frpc LaunchAgent: %v", err)
-	}
-
-	return frpcPlistPath, serverPlistPath, ""
-}
-
-func restartUserLaunchAgents(domain, username, frpcPlistPath, serverPlistPath string) string {
-	frpcLabelFull := fmt.Sprintf("%s/"+launchAgentFRPCLabelPattern, domain, username)
-	_ = runLaunchctl("bootout", frpcLabelFull)
-	if err := runLaunchctl("bootstrap", domain, frpcPlistPath); err != nil {
-		return fmt.Sprintf("Deploy failed: failed to bootstrap frpc LaunchAgent: %v", err)
-	}
-
-	serverLabelFull := fmt.Sprintf("%s/"+launchAgentServerLabelPattern, domain, username)
-	_ = runLaunchctl("bootout", serverLabelFull)
-	if err := runLaunchctl("bootstrap", domain, serverPlistPath); err != nil {
-		return fmt.Sprintf("Deploy failed: failed to bootstrap server LaunchAgent: %v", err)
-	}
-
-	return ""
 }

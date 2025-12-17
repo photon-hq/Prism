@@ -3,71 +3,119 @@
 package userinfra
 
 import (
-	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"os/user"
 	"strings"
 )
 
-// StopAllServices stops the per-user server and frpc LaunchAgents.
+const (
+	launchDaemonServerLabel = "com.imsg.server.%s"
+	launchDaemonFRPCLabel   = "com.imsg.frpc.%s"
+)
+
+// StopAllServices stops the per-user LaunchDaemons.
+// Disables and boots out services so they won't restart via KeepAlive.
 func StopAllServices() string {
-	username, domain, err := currentUserLaunchDomain()
+	username, err := currentUsername()
 	if err != nil {
 		return fmt.Sprintf("Failed to stop services: %v", err)
 	}
-	serverLabel := fmt.Sprintf("%s/"+launchAgentServerLabelPattern, domain, username)
-	frpcLabel := fmt.Sprintf("%s/"+launchAgentFRPCLabelPattern, domain, username)
 
-	_ = runLaunchctl("bootout", serverLabel)
-	_ = runLaunchctl("bootout", frpcLabel)
+	serverLabel := fmt.Sprintf(launchDaemonServerLabel, username)
+	frpcLabel := fmt.Sprintf(launchDaemonFRPCLabel, username)
 
-	return "Attempted to stop the local Prism server and frpc (ignoring if they were already stopped)."
+	if _, err := os.Stat("/Library/LaunchDaemons/" + serverLabel + ".plist"); err != nil {
+		return "No LaunchDaemons found. Please run Host setup first (sudo ./prism)."
+	}
+
+	_ = launchctl("disable", "system/"+serverLabel)
+	_ = launchctl("disable", "system/"+frpcLabel)
+	_ = launchctl("bootout", "system/"+serverLabel)
+	_ = launchctl("bootout", "system/"+frpcLabel)
+
+	return "Stopped the Prism server and frpc. Use 'Start all services' to restart them."
 }
 
-// RestartServer restarts the per-user server LaunchAgent.
+// StartAllServices enables and starts the per-user LaunchDaemons.
+func StartAllServices() string {
+	username, err := currentUsername()
+	if err != nil {
+		return fmt.Sprintf("Failed to start services: %v", err)
+	}
+
+	serverLabel := fmt.Sprintf(launchDaemonServerLabel, username)
+	frpcLabel := fmt.Sprintf(launchDaemonFRPCLabel, username)
+	serverPlist := "/Library/LaunchDaemons/" + serverLabel + ".plist"
+	frpcPlist := "/Library/LaunchDaemons/" + frpcLabel + ".plist"
+
+	if _, err := os.Stat(serverPlist); err != nil {
+		return "No LaunchDaemons found. Please run Host setup first (sudo ./prism)."
+	}
+
+	_ = launchctl("enable", "system/"+serverLabel)
+	_ = launchctl("enable", "system/"+frpcLabel)
+	_ = launchctlBootstrap("system", frpcPlist)
+	_ = launchctlBootstrap("system", serverPlist)
+	_ = launchctl("kickstart", "-k", "system/"+frpcLabel)
+	_ = launchctl("kickstart", "-k", "system/"+serverLabel)
+
+	return "Started the Prism server and frpc."
+}
+
+// RestartServer restarts the server LaunchDaemon.
 func RestartServer() string {
-	username, domain, err := currentUserLaunchDomain()
+	username, err := currentUsername()
 	if err != nil {
 		return fmt.Sprintf("Failed to restart server: %v", err)
 	}
-	label := fmt.Sprintf("%s/"+launchAgentServerLabelPattern, domain, username)
-	if err := runLaunchctl("kickstart", "-k", label); err != nil {
+	if err := launchctl("kickstart", "-k", "system/"+fmt.Sprintf(launchDaemonServerLabel, username)); err != nil {
 		return fmt.Sprintf("Failed to restart server: %v", err)
 	}
-	return "Restarted the local Prism server."
+	return "Restarted the Prism server."
 }
 
-// RestartFRPC restarts the per-user frpc LaunchAgent.
+// RestartFRPC restarts the frpc LaunchDaemon.
 func RestartFRPC() string {
-	username, domain, err := currentUserLaunchDomain()
+	username, err := currentUsername()
 	if err != nil {
 		return fmt.Sprintf("Failed to restart frpc: %v", err)
 	}
-	label := fmt.Sprintf("%s/"+launchAgentFRPCLabelPattern, domain, username)
-	if err := runLaunchctl("kickstart", "-k", label); err != nil {
+	if err := launchctl("kickstart", "-k", "system/"+fmt.Sprintf(launchDaemonFRPCLabel, username)); err != nil {
 		return fmt.Sprintf("Failed to restart frpc: %v", err)
 	}
-	return "Restarted the local frpc."
+	return "Restarted frpc."
 }
 
-func currentUserLaunchDomain() (string, string, error) {
+func currentUsername() (string, error) {
 	u, err := user.Current()
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	if strings.TrimSpace(u.Uid) == "" {
-		return "", "", fmt.Errorf("empty uid for current user")
+	if strings.TrimSpace(u.Username) == "" {
+		return "", fmt.Errorf("empty username for current user")
 	}
-	return u.Username, fmt.Sprintf("gui/%s", u.Uid), nil
+	return u.Username, nil
 }
 
-func runLaunchctl(args ...string) error {
-	ctx := context.Background()
-	cmd := exec.CommandContext(ctx, "launchctl", args...)
-	out, err := cmd.CombinedOutput()
+func launchctl(args ...string) error {
+	out, err := exec.Command("launchctl", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("launchctl %s: %w (output=%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// launchctlBootstrap wraps launchctl bootstrap and tolerates "already bootstrapped" errors.
+func launchctlBootstrap(domain, plistPath string) error {
+	out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+	if err != nil {
+		output := strings.TrimSpace(string(out))
+		if strings.Contains(output, "already bootstrapped") || strings.Contains(output, "EEXIST") {
+			return nil
+		}
+		return fmt.Errorf("launchctl bootstrap %s %s: %w (output=%s)", domain, plistPath, err, output)
 	}
 	return nil
 }

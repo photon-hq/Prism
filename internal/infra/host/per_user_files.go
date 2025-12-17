@@ -23,22 +23,6 @@ import (
 )
 
 const (
-	userAutobootPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>%s</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>%s</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-  </dict>
-</plist>
-`
-
 	envFRPCToken   = "FRPC_TOKEN"
 	envGITHUBToken = "GITHUB_TOKEN"
 )
@@ -344,12 +328,50 @@ func ensurePerUserFiles(
 		}
 	}
 
-	if err := configureUserAutoBoot(username, serviceDir); err != nil {
+	if err := chownRecursive(username, serviceDir); err != nil {
 		return state.User{}, err
 	}
 
-	if err := chownRecursive(username, serviceDir); err != nil {
-		return state.User{}, err
+	// Create LaunchDaemons for headless service startup at boot
+	// Find frpc binary
+	frpcBin, err := exec.LookPath("frpc")
+	if err != nil {
+		// Try common paths
+		for _, p := range []string{"/opt/homebrew/bin/frpc", "/usr/local/bin/frpc"} {
+			if _, err := os.Stat(p); err == nil {
+				frpcBin = p
+				break
+			}
+		}
+		if frpcBin == "" {
+			return state.User{}, fmt.Errorf("frpc binary not found")
+		}
+	}
+
+	// Find server binary
+	serverBin := filepath.Join(serviceDir, "iMessageKitServer.app", "Contents", "MacOS", "iMessageKitServer")
+	if _, err := os.Stat(serverBin); err != nil {
+		return state.User{}, fmt.Errorf("server binary not found: %w", err)
+	}
+
+	daemonCfg := UserLaunchDaemonConfig{
+		Username:   username,
+		HomeDir:    homeDir,
+		ServiceDir: serviceDir,
+		ServerBin:  serverBin,
+		FRPCBin:    frpcBin,
+		FRPCConfig: ucfg.FRPCConfig,
+		LocalPort:  localPort,
+		MachineID:  cfg.Globals.MachineID,
+		NexusAddr:  ucfg.NexusAddr,
+	}
+	if err := EnsureUserLaunchDaemons(daemonCfg); err != nil {
+		return state.User{}, fmt.Errorf("create LaunchDaemons: %w", err)
+	}
+
+	// Bootstrap the daemons so they start running
+	if err := BootstrapUserLaunchDaemons(username); err != nil {
+		return state.User{}, fmt.Errorf("bootstrap LaunchDaemons: %w", err)
 	}
 
 	return state.User{
@@ -357,38 +379,6 @@ func ensurePerUserFiles(
 		Port:      localPort,
 		Subdomain: subdomain,
 	}, nil
-}
-
-func configureUserAutoBoot(username, serviceDir string) error {
-	homeDir := filepath.Join("/Users", username)
-	bootPath := filepath.Join(serviceDir, "boot.sh")
-	script := fmt.Sprintf("#!/bin/zsh\n"+
-		"/System/Library/CoreServices/Menu\\ Extras/User.menu/Contents/Resources/CGSession -suspend >/dev/null 2>&1 || true\n"+
-		"pmset displaysleepnow >/dev/null 2>&1 || true\n"+
-		"cd %q\n"+
-		"./prism >/dev/null 2>&1 || true\n"+
-		"exit 0\n",
-		serviceDir,
-	)
-	if err := os.WriteFile(bootPath, []byte(script), 0o755); err != nil {
-		return err
-	}
-
-	launchDir := filepath.Join(homeDir, "Library", "LaunchAgents")
-	if err := os.MkdirAll(launchDir, 0o755); err != nil {
-		return err
-	}
-	plistPath := filepath.Join(launchDir, userAutobootPlistName)
-	plist := fmt.Sprintf(userAutobootPlistTemplate, userAutobootLabel, bootPath)
-	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
-		return err
-	}
-
-	if err := chownRecursive(username, launchDir); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func syncServiceDir(src, dst string) error {
@@ -401,7 +391,6 @@ func syncServiceDir(src, dst string) error {
 		"--exclude", "frpc.toml",
 		"--exclude", "prism-host",
 		"--exclude", "prism",
-		"--exclude", "boot.sh",
 		src + "/",
 		dst + "/",
 	}
