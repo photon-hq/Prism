@@ -14,19 +14,33 @@ import (
 	toml "github.com/pelletier/go-toml"
 )
 
+// chatDBAccountQuery extracts the user's phone number or email from Messages database.
+// Priority: destination_caller_id (macOS 14+) > phone (P:) > email (E:/e:) > fallback.
+// The destination_caller_id field contains the actual caller ID shown to recipients.
 const chatDBAccountQuery = `
 SELECT
   CASE
+    WHEN destination_caller_id IS NOT NULL AND destination_caller_id != '' THEN destination_caller_id
     WHEN account LIKE 'P:%' THEN SUBSTR(account, 3)
     WHEN account LIKE 'E:%' THEN SUBSTR(account, 3)
+    WHEN account LIKE 'e:%' THEN SUBSTR(account, 3)
     ELSE account
   END AS my_account
 FROM message
 WHERE is_from_me = 1
-  AND account IS NOT NULL
-  AND account != ''
+  AND (
+    (destination_caller_id IS NOT NULL AND destination_caller_id != '')
+    OR (account IS NOT NULL AND account != '')
+  )
 ORDER BY
-  CASE WHEN account LIKE 'P:%' THEN 1 ELSE 2 END
+  CASE 
+    WHEN destination_caller_id IS NOT NULL AND destination_caller_id != '' THEN 0
+    WHEN account LIKE 'P:%' THEN 1
+    WHEN account LIKE 'E:%' THEN 2
+    WHEN account LIKE 'e:%' THEN 2
+    ELSE 3
+  END,
+  ROWID DESC
 LIMIT 1;
 `
 
