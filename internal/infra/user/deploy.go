@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	inframacos "prism/internal/infra/host"
 )
 
 type userServiceConfig struct {
@@ -72,13 +74,22 @@ func Deploy() string {
 		return fmt.Sprintf("Deploy failed: local health check %s did not succeed: %v", healthURL, err)
 	}
 
+	// Deploy keepalive service (now that we know GUI is available)
+	var keepaliveNote string
+	if err := inframacos.EnsureKeepaliveService(u.Username); err != nil {
+		keepaliveNote = fmt.Sprintf("\nWarning: failed to deploy keepalive: %v", err)
+	} else {
+		keepaliveNote = "\nKeepalive service deployed."
+	}
+
 	frpcLog := filepath.Join(home, "Library", "Logs", "frpc.log")
 	serverLog := filepath.Join(home, "Library", "Logs", "imsg-server.log")
 
 	return fmt.Sprintf(
-		"Deploy succeeded: Prism server and frpc are running.\nLocal health OK: %s%s\n\nTo view logs:\n- tail -100 %s\n- tail -100 %s%s",
+		"Deploy succeeded: Prism server and frpc are running.\nLocal health OK: %s%s%s\n\nTo view logs:\n- tail -100 %s\n- tail -100 %s%s",
 		healthURL,
 		friendlyNote,
+		keepaliveNote,
 		frpcLog,
 		serverLog,
 		nodeNote,

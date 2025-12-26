@@ -317,6 +317,11 @@ func UpdateUserCode(
 				return st, fmt.Errorf("restart services for %s: %w", u.Name, err)
 			}
 		}
+
+		// Update keepalive script and LaunchAgent
+		if err := EnsureKeepaliveService(u.Name); err != nil {
+			fmt.Printf("[update-code] warning: failed to update keepalive for %s: %v\n", u.Name, err)
+		}
 	}
 
 	// Record the deployed version for auto-update tracking
