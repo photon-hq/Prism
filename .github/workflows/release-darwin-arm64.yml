@@ -28,7 +28,7 @@ jobs:
           tar -czf ../prism-darwin-arm64.tar.gz .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prism-darwin-arm64
           path: prism-darwin-arm64.tar.gz
