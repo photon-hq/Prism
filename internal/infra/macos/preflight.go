@@ -78,14 +78,14 @@ func checkAndFixBootArgs(ctx context.Context) (Check, bool) {
 	// Auto-fix
 	fmt.Printf("\n[preflight] Setting boot-args: %s\n", bootArgsValue)
 	if out, err := exec.CommandContext(ctx, "nvram", "boot-args="+bootArgsValue).CombinedOutput(); err != nil {
-		return Check{Name: "boot-args", OK: false, Detail: fmt.Sprintf("Failed: %v\n%s", err, out)}, false
+		return Check{Name: "boot-args", OK: false, Detail: fmt.Sprintf("Failed to set boot-args: %v\nOutput: %s", err, out)}, false
 	}
 
 	// Verify
 	out, _ = exec.CommandContext(ctx, "nvram", "boot-args").CombinedOutput()
 	outStr = strings.TrimSpace(string(out))
 	if missing := containsAll(outStr, requiredBootArgs); len(missing) > 0 {
-		return Check{Name: "boot-args", OK: false, Detail: "Verification failed: " + outStr}, false
+		return Check{Name: "boot-args", OK: false, Detail: fmt.Sprintf("Verification failed. Missing: %s", strings.Join(missing, ", "))}, false
 	}
 
 	return Check{Name: "boot-args", OK: true, Detail: "Auto-configured: " + outStr}, true
@@ -103,7 +103,7 @@ func checkAndFixLibraryValidation(ctx context.Context) (Check, bool) {
 	// Auto-fix
 	fmt.Printf("\n[preflight] Setting %s: true\n", key)
 	if out, err := exec.CommandContext(ctx, "defaults", "write", plist, key, "-bool", "true").CombinedOutput(); err != nil {
-		return Check{Name: key, OK: false, Detail: fmt.Sprintf("Failed: %v\n%s", err, out)}, false
+		return Check{Name: key, OK: false, Detail: fmt.Sprintf("Failed to set %s: %v\nOutput: %s", key, err, out)}, false
 	}
 
 	// Verify
@@ -126,18 +126,21 @@ func rebootWithCountdown() bool {
 	defer signal.Stop(sigCh)
 
 	for i := 10; i > 0; i-- {
+		fmt.Printf("\r  %d seconds... (Ctrl+C to cancel)", i)
 		select {
 		case <-sigCh:
 			fmt.Println("\n\nReboot cancelled. Please reboot manually.")
 			return true
-		default:
-			fmt.Printf("\r  %d seconds... (Ctrl+C to cancel)", i)
-			time.Sleep(time.Second)
+		case <-time.After(time.Second):
+			// continue countdown
 		}
 	}
 
 	fmt.Println("\n\nRebooting...")
-	_ = exec.Command("shutdown", "-r", "now").Run()
+	if err := exec.Command("shutdown", "-r", "now").Run(); err != nil {
+		fmt.Printf("Failed to reboot: %v\nPlease reboot manually.\n", err)
+		return true
+	}
 	return false
 }
 
