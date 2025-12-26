@@ -94,8 +94,15 @@ func EnsureKeepaliveService(username string) error {
 	if err := os.MkdirAll(launchAgentsDir, 0o755); err != nil {
 		return fmt.Errorf("create LaunchAgents dir: %w", err)
 	}
+	if err := chownRecursive(username, launchAgentsDir); err != nil {
+		return fmt.Errorf("chown LaunchAgents dir: %w", err)
+	}
+
 	if err := os.MkdirAll(logsDir, 0o755); err != nil {
 		return fmt.Errorf("create Logs dir: %w", err)
+	}
+	if err := chownRecursive(username, logsDir); err != nil {
+		return fmt.Errorf("chown Logs dir: %w", err)
 	}
 
 	// Write keepalive script
@@ -125,7 +132,11 @@ func EnsureKeepaliveService(username string) error {
 	// Bootstrap the LaunchAgent if not already loaded
 	// Note: This requires the user to have an active GUI session
 	domain := fmt.Sprintf("gui/%d", uid)
-	_ = exec.Command("launchctl", "bootout", domain, plistPath).Run() // Ignore error if not loaded
+	serviceTarget := fmt.Sprintf("%s/%s", domain, keepaliveLabel)
+
+	// Bootout first to ensure reload
+	_ = exec.Command("launchctl", "bootout", serviceTarget).Run()
+
 	if err := exec.Command("launchctl", "bootstrap", domain, plistPath).Run(); err != nil {
 		// Not an error - user might not have GUI session yet
 		// Service will start automatically when user logs in (RunAtLoad)

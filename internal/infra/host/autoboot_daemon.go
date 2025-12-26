@@ -76,7 +76,7 @@ func EnsureHostAutobootDaemon(ctx context.Context, prismPath, workingDir string)
 	}
 
 	// Try to bootout first to ensure we reload the config if it changed
-	_ = exec.CommandContext(ctx, "launchctl", "bootout", "system", hostAutobootPlistPath).Run()
+	_ = exec.CommandContext(ctx, "launchctl", "bootout", "system/"+hostAutobootLabel).Run()
 
 	cmd := exec.CommandContext(ctx, "launchctl", "bootstrap", "system", hostAutobootPlistPath)
 	out, err := cmd.CombinedOutput()
