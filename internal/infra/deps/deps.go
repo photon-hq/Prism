@@ -138,6 +138,26 @@ func EnsureWithRunner(ctx context.Context, r Runner) (Result, error) {
 }
 
 func ensureHomebrew(ctx context.Context, r Runner) (Item, bool) {
+	// CRITICAL CHECK: If running as root, we MUST have a valid SUDO_USER to downgrade privileges.
+	// Homebrew strictly forbids running as root. Even if `brew --version` works as root,
+	// `brew install` will fail later. We must catch this early.
+	if os.Geteuid() == 0 {
+		sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+		valid := sudoUser != "" && sudoUser != "root" && validUsername.MatchString(sudoUser)
+
+		if !valid {
+			return Item{
+				Name:   NameHomebrew,
+				OK:     false,
+				Action: ActionInstallFailed,
+				Detail: "Prism is running as root but SUDO_USER is missing or invalid.\n" +
+					"Homebrew cannot be used as root.\n\n" +
+					"Please run Prism using `sudo ./prism` from a normal user account.\n" +
+					"Do not run from a root shell (su/sudo -i).",
+			}, false
+		}
+	}
+
 	out, err := r.Run(ctx, "brew", "--version")
 	if err == nil {
 		return Item{
@@ -146,20 +166,6 @@ func ensureHomebrew(ctx context.Context, r Runner) (Item, bool) {
 			Action: ActionAlreadyInstalled,
 			Detail: out,
 		}, true
-	}
-
-	// If running as root without valid SUDO_USER, we cannot install Homebrew
-	sudoUser := os.Getenv("SUDO_USER")
-	if os.Geteuid() == 0 && (sudoUser == "" || sudoUser == "root") {
-		return Item{
-			Name:   NameHomebrew,
-			OK:     false,
-			Action: ActionInstallFailed,
-			Detail: "Homebrew is not installed and cannot be installed as root.\n\n" +
-				"Please install Homebrew manually as a non-root user:\n\n" +
-				"  /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n" +
-				"Then run `sudo ./prism` again.",
-		}, false
 	}
 
 	const installScript = "NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
