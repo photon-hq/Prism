@@ -35,7 +35,7 @@ type Initializer struct {
 	removeUser     func(ctx context.Context, cfg config.Config, st state.State, username, outputDir string) (state.State, error)
 
 	checkServices        func(ctx context.Context, cfg config.Config, st state.State) ([]infrahost.UserServiceStatus, error)
-	ensureAutobootDaemon func(ctx context.Context, prismPath string) error
+	ensureAutobootDaemon func(ctx context.Context, prismPath, workingDir string) error
 }
 
 // ServiceStatus is an alias for infrahost.UserServiceStatus.
@@ -135,7 +135,8 @@ func (i *Initializer) Provision(ctx context.Context, userCount int, prismPath st
 		return ProvisionResult{}, fmt.Errorf("save state: %w", err)
 	}
 
-	if err := i.ensureAutobootDaemon(ctx, prismPath); err != nil {
+	// WorkingDir = directory containing prism binary and .env file
+	if err := i.ensureAutobootDaemon(ctx, prismPath, filepath.Dir(prismPath)); err != nil {
 		return ProvisionResult{}, fmt.Errorf("ensure host autoboot daemon: %w", err)
 	}
 

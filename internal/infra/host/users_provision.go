@@ -319,6 +319,12 @@ func UpdateUserCode(
 		}
 	}
 
+	// Record the deployed version for auto-update tracking
+	if err := RecordInitialVersion(ctx, cfg, outputDir); err != nil {
+		// Log but don't fail update; auto-update will handle version tracking
+		fmt.Printf("[update-code] warning: failed to record version: %v\n", err)
+	}
+
 	st.Initialized = true
 	return st, nil
 }
