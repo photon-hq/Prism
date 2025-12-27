@@ -14,9 +14,6 @@ const (
 )
 
 // fastLoginScriptTemplate spawns VNC sessions for sub-users to activate their GUI.
-// fastLoginScriptTemplate spawns VNC sessions for sub-users to activate their GUI.
-// fastLoginScriptTemplate spawns VNC sessions for sub-users to activate their GUI.
-// fastLoginScriptTemplate spawns VNC sessions for sub-users to activate their GUI.
 const fastLoginScriptTemplate = `#!/bin/bash
 # Prism Fast Login - activates sub-user GUI sessions via VNC loopback with SSH Tunnel
 #
@@ -56,7 +53,7 @@ start_tunnel() {
     echo " Debug log: $LOG_FILE"
 
     /usr/bin/expect <<EOF > "$LOG_FILE" 2>&1 &
-      exp_internal 1
+      exp_internal 0
       # Set timeout to infinite so the tunnel stays open
       set timeout -1
       spawn ssh -N $ssh_forwarding_opts -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $tunnel_user@localhost
@@ -221,7 +218,7 @@ func EnsureFastLoginService(cfg FastLoginConfig) error {
 	}
 
 	scriptContent := fmt.Sprintf(fastLoginScriptTemplate, usersStr, cfg.Password)
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o755); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o700); err != nil {
 		return fmt.Errorf("write script: %w", err)
 	}
 	if err := chownRecursive(cfg.AdminUser, scriptPath); err != nil {

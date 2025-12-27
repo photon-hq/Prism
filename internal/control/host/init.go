@@ -248,7 +248,7 @@ func (i *Initializer) RemoveUser(ctx context.Context, username string) (state.St
 	// Update Fast Login after user removal
 	if err := i.setupFastLogin(newState); err != nil {
 		// Log but don't fail - user was already removed
-		_ = err
+		fmt.Printf("[WARN] Failed to update Fast Login configuration: %v\n", err)
 	}
 
 	return newState, nil
