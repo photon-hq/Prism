@@ -48,11 +48,11 @@ When you run `sudo ./prism`, it does these things in order:
    - Runs: csrutil status
      → Must show "disabled"
 
-   - Runs: nvram boot-args
-     → Must contain: amfi_get_out_of_my_way=1, amfi_allow_any_signature=1, etc.
+   - Checks/Sets boot-args:
+     sudo nvram boot-args="amfi_get_out_of_my_way=1 amfi_allow_any_signature=1 -arm64e_preview_abi ipc_control_port_options=0"
 
-   - Runs: defaults read /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation
-     → Must be 1 or true
+   - Checks/Sets Library Validation:
+     sudo defaults write /Library/Preferences/com.apple.security.libraryvalidation.plist DisableLibraryValidation -bool true
 
 2. Install Dependencies
    - If no Homebrew → install it
