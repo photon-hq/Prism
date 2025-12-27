@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -36,6 +37,7 @@ type Initializer struct {
 
 	checkServices        func(ctx context.Context, cfg config.Config, st state.State) ([]infrahost.UserServiceStatus, error)
 	ensureAutobootDaemon func(ctx context.Context, prismPath, workingDir string) error
+	ensureFastLogin      func(infrahost.FastLoginConfig) error
 }
 
 // ServiceStatus is an alias for infrahost.UserServiceStatus.
@@ -69,6 +71,7 @@ func NewInitializer(configPath, statePath string) *Initializer {
 		removeUser:           infrahost.RemoveUser,
 		checkServices:        infrahost.CheckUserServices,
 		ensureAutobootDaemon: infrahost.EnsureHostAutobootDaemon,
+		ensureFastLogin:      infrahost.EnsureFastLoginService,
 	}
 }
 
@@ -135,9 +138,13 @@ func (i *Initializer) Provision(ctx context.Context, userCount int, prismPath st
 		return ProvisionResult{}, fmt.Errorf("save state: %w", err)
 	}
 
-	// WorkingDir = directory containing prism binary and .env file
 	if err := i.ensureAutobootDaemon(ctx, prismPath, filepath.Dir(prismPath)); err != nil {
 		return ProvisionResult{}, fmt.Errorf("ensure host autoboot daemon: %w", err)
+	}
+
+	// Setup Fast Login for GUI sessions
+	if err := i.setupFastLogin(newState); err != nil {
+		return ProvisionResult{}, fmt.Errorf("setup fast login: %w", err)
 	}
 
 	return ProvisionResult{State: newState, SecretsPath: secretsPath}, nil
@@ -157,6 +164,30 @@ func (i *Initializer) validate() error {
 	}
 
 	return nil
+}
+
+// setupFastLogin configures the Fast Login spawner for GUI session activation.
+func (i *Initializer) setupFastLogin(st state.State) error {
+	// Determine AdminUser first
+	adminUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+	if adminUser == "" || adminUser == "root" {
+		adminUser = os.Getenv("USER")
+	}
+
+	// Filter out AdminUser from targets to avoid "You cannot control your own screen" error
+	var targetUsers []string
+	for _, u := range st.Users {
+		if u.Name != adminUser {
+			targetUsers = append(targetUsers, u.Name)
+		}
+	}
+
+	fastLoginCfg := infrahost.FastLoginConfig{
+		AdminUser:   adminUser,
+		TargetUsers: targetUsers,
+		Password:    "Photon2025",
+	}
+	return i.ensureFastLogin(fastLoginCfg)
 }
 
 // User management flows.
@@ -214,6 +245,12 @@ func (i *Initializer) RemoveUser(ctx context.Context, username string) (state.St
 		return state.State{}, fmt.Errorf("save state: %w", err)
 	}
 
+	// Update Fast Login after user removal
+	if err := i.setupFastLogin(newState); err != nil {
+		// Log but don't fail - user was already removed
+		_ = err
+	}
+
 	return newState, nil
 }
 
@@ -247,6 +284,11 @@ func (i *Initializer) AddUsers(ctx context.Context, userCount int, prismPath str
 		return ProvisionResult{}, fmt.Errorf("save state: %w", err)
 	}
 
+	// Update Fast Login for GUI sessions
+	if err := i.setupFastLogin(newState); err != nil {
+		return ProvisionResult{}, fmt.Errorf("setup fast login: %w", err)
+	}
+
 	return ProvisionResult{State: newState, SecretsPath: secretsPath}, nil
 }
 
@@ -273,6 +315,11 @@ func (i *Initializer) UpdateUserCode(ctx context.Context) (ProvisionResult, erro
 
 	if err := i.saveState(i.StatePath, newState); err != nil {
 		return ProvisionResult{}, fmt.Errorf("save state: %w", err)
+	}
+
+	// Update Fast Login for GUI sessions
+	if err := i.setupFastLogin(newState); err != nil {
+		return ProvisionResult{}, fmt.Errorf("setup fast login: %w", err)
 	}
 
 	return ProvisionResult{State: newState}, nil
